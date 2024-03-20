@@ -437,4 +437,4 @@ def seepage_script(rate_inj):
     run()
         
     
-seepage_script(rate_inj=0.0002)
+seepage_script(rate_inj=72.5)
