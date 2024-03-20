@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 from zml import *
 from zmlx.alg import make_fname
-from zmlx.react import combustion
 
 import matplotlib.tri as tri
 from matplotlib.cm import ScalarMappable
@@ -51,10 +50,10 @@ def seepage_script(rate_inj):
     x, y, z = cell.pos
     virtual_cell.set_attr(config.cell_keys['g_heat'], 1.0e-20)
     face = config.add_face(model, virtual_cell, model.get_cell(cell.index),
-                           heat_cond=0, perm=1e-14, area=3.0, length=1.0, )
+                           heat_cond=0, perm=1e-14, area=1.0, length=1.0, )
    
     
-    prectrl = PressureController(virtual_cell, t=[0, 1e10], p=[10e6, 1e6])
+    prectrl = PressureController(virtual_cell, t=[0, 1e10], p=[1e6, 1e6])
     monitor = SeepageCellMonitor(get_t=lambda: config.get_time(model),
                                   cell=(virtual_cell, prectrl))
     
