@@ -39,19 +39,21 @@ def create_fludefs():
     4. sol= kerogen, char
     
     """
-    gas = Seepage.FluDef.create(name='gas', defs= [create_ch4(name='ch4'),
-                                                   create_steam(name='steam'),
-                                                   create_o2(name='o2'),
-                                                   create_co(name='co'),
-                                                   create_co2(name='co2')])
+    
+    gas = Seepage.FluDef(name='gas')
+    gas.add_component(create_ch4(name='ch4'))
+    gas.add_component(create_steam(name='steam'))
+    gas.add_component(create_o2(name='o2'))
+    gas.add_component(create_co(name='co'))
+    gas.add_component(create_co2(name='co2'))
+    
     h2o = create_h2o(name='h2o')
-    
     lo = create_lo(name='lo')
-    
     ho = create_ho(name='ho')
     
-    sol= Seepage.FluDef.create(name='sol', defs=[create_kerogen(name='kero'),
-                                                 create_char(name='coke')])
+    sol = Seepage.FluDef(name='sol')
+    sol.add_component(create_kerogen(name='kero'))
+    sol.add_component(create_char(name='coke'))
     
     return [gas, h2o, lo, ho, sol]
 
@@ -103,65 +105,55 @@ def create_reactions(temp_max=None):
     result.append(r)
     return result
 
-def create_ini(perm=None, dist=None, pore_modulus=None, s=None,
-                heat_cond=None, z_min=None, z_max=None):
+def create_initial():
     """
-    Create the initial field. Note: The calculation plane is in the x-z plane. 
-    The y direction is perpendicular to the paper.
+    create initial field
     """
-    if dist is None:
-        dist = 0.01
 
-    if z_min is None:
-        z_min = -1e10
+    def get_initial_t(x, y, z):
+        """
+        the initial temperature
+        """
+        return 338.0 + 22.15 - 0.0443 * z
 
-    if z_max is None:
-        z_max = 1e10
-
-    if perm is None:
-        # Absolute permeability (when considering the presence of kerogen and coke, the actual permeability will be much lower than this value)
-        perm = 1.0e-15
+    def get_initial_p(x, y, z):
+        """
+        the initial pressure
+        """
+        return 15.0e6 + 5e6 - 1e4 * z
 
     def get_perm(x, y, z):
-        if z_min <= z <= z_max:
-            return perm
-        else:
-            return 0
+        """
+        the initial permeability
+        """
+        return 1.0e-15
 
-    if pore_modulus is None:
-        pore_modulus = 100e6
+    def get_initial_s(x, y, z):
+        """
+        the initial saturation ()
+        """
 
-    if s is None:
-        # Default initial saturation (refer to Zhao Wenzhi's article)
-        s = {'ch4': 0.08, 'steam':0, 'o2':0, 'co':0, 'co2':0,
-              'h2o': 0.04, 'lo': 0.08,
-              'ho': 0.2, 
-              'kero': 0.6, 'coke':0}
-
-    def get_s(x, y, z):
-        if z_min <= z <= z_max:
-            return s
-        else:
-            return {'ch4': 1}
-
-    if heat_cond is None:
-        heat_cond = 2.0
-
+        return (0.08, 0, 0, 0, 0), 0.04, 0.08, 0.2, (0.6, 0)
+    
     def get_fai(x, y, z):
-        if z_min <= z <= z_max:
-            return 0.43
-        else:
-            return 0.01
+        """
+        porosity
+        """
+        return 0.43
 
-    return {'porosity': get_fai, 'pore_modulus': pore_modulus,
-            'p': 20e6,
-            'temperature': 350.0,
-            'denc': 2.6e6,
-            's': get_s,
-            'perm': get_perm,
-            'heat_cond': heat_cond,
-            'dist': dist  # Determines the distance of heat exchange between fluid and solid.
-            }
+    def get_denc(x, y, z):
+        """
+        density * heat capacity
+        """
+        return 2600 * 1000
+
+    def get_heat_cond(x, y, z):
+        return 1.0
+    
+    return {'porosity': get_fai, 'pore_modulus': 100e6, 'p': get_initial_p,
+            'temperature': get_initial_t,
+            'denc': get_denc, 's': get_initial_s,
+            'perm': get_perm, 'heat_cond': get_heat_cond, 'dist': 0.01}
 
 
 x, y = create_krf(faic=0.02, n=3.0, k_max=100,
@@ -175,9 +167,7 @@ kw = create_dict(fludefs=create_fludefs(),
                  has_solid=False,)
 
 
-kw.update(**create_ini(perm=None, dist=None, s=None,
-                       heat_cond=None,
-                       z_min=None, z_max=None))
+kw.update(**create_initial())
 
 gravity = [0, 0, -10]
 
