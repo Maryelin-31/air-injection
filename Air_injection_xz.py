@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib import pyplot as pyplot
+from matplotlib.cm import ScalarMappable
 import os
 
 from zml import *
@@ -27,7 +28,6 @@ from zml import Interp1, create_dict
 from zmlx.utility.PressureController import PressureController
 from zmlx.utility.SeepageCellMonitor import SeepageCellMonitor
 from zmlx.utility.SaveManager import SaveManager
-
 
 def create_mesh():
     mesh = create_xz(x_min=0, dx=0.5, x_max=100,
@@ -159,11 +159,17 @@ def create_initial():
         """
         density * heat capacity
         """
-        
-        return 2600 * 1000
+        if 25 <= z <= 75:
+            return 2600 * 1000
+        else:
+            return 2600 * 3000
 
     def get_heat_cond(x, y, z):
-        return 1.0
+        if 25 <= z <= 75:
+            return 1.0
+        else:
+            return 0.01
+    
     
     return {'porosity': get_fai, 'pore_modulus': 100e6, 'p': get_initial_p,
             'temperature': get_initial_t,
@@ -271,7 +277,7 @@ virtual_cell = seepage.add_cell(model, pos=pos_prd, porosity=1.0e5, pore_modulus
                                 s=((1.0, 0, 0, 0, 0), 0, 0, 0, (0, 0)))
 seepage.add_face(model, virtual_cell, model.get_cell(id_prod),
                  heat_cond=0, perm=1.0e-14,
-                 area=0.0, #the area 0 indicates the well is closed
+                 area=1.0, #the area 0 indicates the well is closed
                  length=1.0)
 pre_ctrl = PressureController(virtual_cell, t=[0, 1e10], p=[p_prod, p_prod])
 monitor  = SeepageCellMonitor(get_t=lambda: seepage.get_time(model), cell=(virtual_cell, pre_ctrl))
@@ -291,47 +297,47 @@ def cell_mass(cell):
     saturation = [i / sum(total) for i in fluid]
     return saturation
 
-def mass(i, component=None):
+def mass(i, j=None):
+    """
+    input 
+    i = fluid
+    j = component
     
+    output 
+    contour plot saturation
+    """    
     X = []
     Z = [] 
-    vol = []
     total = []
     fluid = []
     for cell in model.cells:
-        # x, y, z = cell.pos
-        # X.append(x)
-        # Z.append(z)
-        for j in range(cell.fluid_number):
-            total.append(cell.get_fluid(j).vol)
-            if cell.get_fluid(i).component_number == 0:
-                fluid.append(cell.get_fluid(i).vol)
-            else:
-                fluid.append(cell.get_fluid(i).get_component(component).vol)
-        saturation = [k / sum(total) for k in fluid]
-        vol.append(saturation)
+        x, y, z = cell.pos
+        X.append(x)
+        Z.append(z)
+        total.append(cell.fluid_vol)
+        if cell.get_fluid(i).component_number == 0 :
+            fluid.append(cell.get_fluid(i).vol)
+        else:
+            fluid.append(cell.get_fluid(i).get_component(j).vol)
+    
+    
+    vol_frac = [ i / j for i, j in zip(fluid, total)]
+    vol_frac = vol_frac[:len(vol_frac) - 1]
+    vol_frac = np.array(vol_frac)
+    vol_frac = np.transpose(vol_frac.reshape(200, 200))
     fig, ax = pyplot.subplots()
-    [xx, zz] = np.meshgrid(X, Z)
-    print(len(vol))
-    
-    # mass = vol[:len(vol) - 1]
-    # mass = np.array(mass)
-    # mass = np.transpose(mass.reshape(200, 200))
-    # plot = pyplot.contourf(mass, 20, extent=[xx.min(), xx.max(), zz.min(), zz.max()], cmap='coolwarm', antialiased=True)
-    # pyplot.xlabel('x, m')
-    # pyplot.ylabel('y, m') 
-    # pyplot.clim(vmin=np.min(mass), vmax=np.max(mass))
-    # pyplot.colorbar(plot)      
-            
-mass(i=0, component=0)
+    plot = ax.contourf(vol_frac, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True)
+    ax.set_xlabel('x, m')
+    ax.set_ylabel('y, m') 
+    ax.set_ylim(100, 0)
+    cbar = fig.colorbar(ScalarMappable(norm=plot.norm, cmap=plot.cmap), ax=ax)
+    cbar.set_label('vol_sat')  # Set label for the colorbar
 
-# Folder = os.path.join(os.getcwd(), 'Results')
 
-# print(Folder)
 
-def interate():
+def iterate():
     
-    
+    Folder = os.path.join(os.getcwd(), 'Results')
     
     solver = ConjugateGradientSolver(tolerance=1.0e-8)
     for step in range(1000):
@@ -340,19 +346,20 @@ def interate():
         monitor.update(dt=seepage.get_dt(model))
         
         
-        time = seepage.get_time(model)
+        time = seepage.get_time(model) / (3600 * 24)
         if time > 3600 * 24 * 365 * 20:
             print(f'time Finish = {seepage.get_time(model) / 3600*34*365}')
             break
         
         if step % 100 == 0:
             
-            SaveManager()
+            # SaveManager(join_paths(folder, 'model'), 10, get_day, save=model.save,
+            #                          ext='.seepage', time_unit='d')
             
             print(f'time = {time}')
             
         
-        
+iterate()        
 
 
 
