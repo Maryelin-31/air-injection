@@ -6,6 +6,10 @@ import os
 from zml import *
 from zmlx.config import seepage
 from zmlx.seepage_mesh.cube import create_xz
+from zml import Dfn2
+from zmlx.plt.show_dfn2 import show_dfn2
+from zmlx.geometry.seg_point_distance import seg_point_distance
+from zmlx.geometry.point_distance import point_distance
 
 from zmlx.fluid.ch4 import create as create_ch4
 from zmlx.fluid.h2o_gas import create as create_steam
@@ -239,6 +243,44 @@ model.set_kr(index=1, saturation=sw, kr=krw)
 model.set_kr(index=2, saturation=so, kr=kro)
 model.set_kr(index=3, saturation=so, kr=kro)
 
+
+"Fractures"
+"""
+fl_min, fl_max: minimum and maximum lengths of natural fractures
+p21: Density of natural fractures
+"""
+
+dfn = Dfn2()
+dfn.range = [0.25, 25.0, 100, 75]
+
+fl_min, fl_ma = 10, 15
+p21 = 0.2
+angles=None
+dfn.add_frac(angles=np.linspace(0.0, 3.1415 * 2, 50) if angles is None else angles,
+              lengths=np.linspace(fl_min, fl_ma, 50), p21=p21)
+fractures = dfn.get_fractures()
+# show_dfn2(fractures, caption='裂缝')
+# add cracks to the model
+for x0, z0, x1, z1 in dfn.get_fractures():
+    cell_beg = model.get_nearest_cell(pos=[x0, 0, z0])
+    cell_end = model.get_nearest_cell(pos=[x1, 0, z1])
+    
+    def get_dist(cell_pos):
+        return seg_point_distance([[x0, z0], [x1, z1]], cell_pos[0: 2]) + point_distance(cell_pos, cell_end.pos)
+    count = 0
+    while cell_beg.index != cell_end.index:
+        dist = [get_dist(c.pos) for c in cell_beg.cells]
+        idx = 0
+        for i in range(1, len(dist)):
+            if dist[i] < dist[idx]:
+                idx = i
+        cell = cell_beg.get_cell(idx)
+        face = model.add_face(cell_beg, cell)
+        seepage.set_face(face=face, perm=1.0e-14)
+        count += 1
+        cell_beg = cell
+
+
 "attribute"
 ca = seepage.cell_keys(model)
 
@@ -254,14 +296,14 @@ for cell in tot_cells:
     ct= c.set_attr(ca.temperature, 300) 
         
 "Injection"
-rate_inj = 0.002
+rate_inj = 1.0
 pos_inj = (25, 1.0e3, 50)
 id_inj  = model.get_nearest_cell(pos=(25, 1.0e3, 50)).index
 fa_t = 1
 fa_c = 2
 cell_inj = model.get_cell(id_inj)
 flu = cell_inj.get_fluid(0).get_component(3)
-flu.set_attr(fa_t, 500)
+flu.set_attr(fa_t, 700)
 flu.set_attr(fa_c, 1000)
 model.add_injector(cell=cell_inj, fluid_id=[0, 3], flu=flu,
                     pos=cell_inj.pos, radi=1.0, opers=[(0, rate_inj)])
@@ -277,12 +319,12 @@ virtual_cell = seepage.add_cell(model, pos=pos_prd, porosity=1.0e5, pore_modulus
                                 s=((1.0, 0, 0, 0, 0), 0, 0, 0, (0, 0)))
 seepage.add_face(model, virtual_cell, model.get_cell(id_prod),
                  heat_cond=0, perm=1.0e-14,
-                 area=1.0, #the area 0 indicates the well is closed
+                 area=0.0, #the area 0 indicates the well is closed
                  length=1.0)
 pre_ctrl = PressureController(virtual_cell, t=[0, 1e10], p=[p_prod, p_prod])
 monitor  = SeepageCellMonitor(get_t=lambda: seepage.get_time(model), cell=(virtual_cell, pre_ctrl))
 
-
+"save"
 
 def cell_mass(cell):
     fluid = []
@@ -296,6 +338,48 @@ def cell_mass(cell):
                 fluid.append(cell.get_fluid(i).get_component(j).mass)               
     saturation = [i / sum(total) for i in fluid]
     return saturation
+
+
+def save_wt(path):
+    name = os.path.basename(__file__)
+    result_folder = os.path.join(os.getcwd(), f'data_{name}', f'Results_rate', 'wt_cells')
+    
+    if os.path.exists(f'result_folder'):
+        import shutil
+        shutil.rmtree(f'result_folder')            
+    os.makedirs(result_folder, exist_ok=True)
+    
+    SavePath = os.path.join(result_folder, path)
+    with open(SavePath, 'w') as file:
+        for cell in model.cells:
+            x, y, z = cell.pos
+            satu = cell_mass(cell)
+            satu_str = ' '.join(str(i) for i in satu)
+            file.write(f'{x} {y} {z} {satu_str}\n')
+            
+def save_mass(path):
+    name = os.path.basename(__file__)
+    result_folder = os.path.join(os.getcwd(), f'data_{name}', f'Results_rate', 'Results_cells')
+    
+    if os.path.exists(f'result_folder'):
+        import shutil
+        shutil.rmtree(f'result_folder')            
+    os.makedirs(result_folder, exist_ok=True)
+    
+    SavePath = os.path.join(result_folder, path)
+    with open(SavePath, 'w') as file:
+        for cell in model.cells:
+            x, y, z = cell.pos
+            temp = cell.get_attr(seepage.cell_keys(model).temperature)
+            pres = cell.pre
+            file.write(f'{x} {y} {z} '
+                        f'{cell.get_fluid(0).get_component(0).mass} {cell.get_fluid(0).get_component(1).mass} {cell.get_fluid(0).get_component(2).mass} '
+                        f'{cell.get_fluid(0).get_component(3).mass} {cell.get_fluid(0).get_component(4).mass} '
+                        f'{cell.get_fluid(1).mass} '
+                        f'{cell.get_fluid(2).mass} '
+                        f'{cell.get_fluid(3).mass} '
+                        f'{cell.get_fluid(4).get_component(0).mass} {cell.get_fluid(4).get_component(1).mass} '
+                        f'{temp} {pres}\n')
 
 def mass(i, j=None):
     """
@@ -332,15 +416,48 @@ def mass(i, j=None):
     ax.set_ylim(100, 0)
     cbar = fig.colorbar(ScalarMappable(norm=plot.norm, cmap=plot.cmap), ax=ax)
     cbar.set_label('vol_sat')  # Set label for the colorbar
+    
+def temperature():
+    """
+    input 
+    i = fluid
+    j = component
+    
+    output 
+    contour plot saturation
+    """    
+    X = []
+    Z = [] 
+    temp = []
+    for cell in model.cells:
+        x, y, z = cell.pos
+        temp.append(cell.get_attr(seepage.cell_keys(model).temperature))
+    
+    
+    temp = temp[:len(temp) - 1]
+    temp = np.array(temp)
+    temp = np.transpose(temp.reshape(200, 200))
+    fig, ax = pyplot.subplots()
+    plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True)
+    ax.set_xlabel('x, m')
+    ax.set_ylabel('y, m') 
+    ax.set_ylim(100, 0)
+    cbar = fig.colorbar(ScalarMappable(norm=plot.norm, cmap=plot.cmap), ax=ax)
+    cbar.set_label('Temperature, K')  # Set label for the colorbar
+    pyplot.show()
 
-
+# temperature()
 
 def iterate():
+    name = os.path.basename(__file__)
     
-    Folder = os.path.join(os.getcwd(), 'Results')
+    data_path = os.path.join(os.getcwd(), f'data_{name}')
+    resu_path = os.path.join(data_path, f'Results_rate')
+    os.makedirs(os.path.join(os.getcwd(), data_path, f'Results_rate'), exist_ok=True)
+    folder = os.path.join(os.getcwd(), data_path, f'Results_rate')
     
     solver = ConjugateGradientSolver(tolerance=1.0e-8)
-    for step in range(1000):
+    for step in range(100000000):
         seepage.iterate(model, solver=solver)
         pre_ctrl.update(seepage.get_time(model))
         monitor.update(dt=seepage.get_dt(model))
@@ -351,11 +468,9 @@ def iterate():
             print(f'time Finish = {seepage.get_time(model) / 3600*34*365}')
             break
         
-        if step % 100 == 0:
-            
-            # SaveManager(join_paths(folder, 'model'), 10, get_day, save=model.save,
-            #                          ext='.seepage', time_unit='d')
-            
+        if step % 1 == 0:
+            temperature()
+            monitor.save(os.path.join(folder, f'prod_{name}.txt'))
             print(f'time = {time}')
             
         
