@@ -138,7 +138,7 @@ def create_initial():
         if 25 <= z <= 75:
             return 1.0e-15  
         else:
-            return 0
+            return 1.0e-17
         
     def get_initial_s(x, y, z):
         """
@@ -166,13 +166,13 @@ def create_initial():
         if 25 <= z <= 75:
             return 2600 * 1000
         else:
-            return 2600 * 3000
+            return 2600 * 2000
 
     def get_heat_cond(x, y, z):
         if 25 <= z <= 75:
-            return 1.0
+            return 2.0
         else:
-            return 0.01
+            return 0.05
     
     
     return {'porosity': get_fai, 'pore_modulus': 100e6, 'p': get_initial_p,
@@ -296,7 +296,7 @@ for cell in tot_cells:
     ct= c.set_attr(ca.temperature, 300) 
         
 "Injection"
-rate_inj = 1.0
+rate_inj = 1e-6
 pos_inj = (25, 1.0e3, 50)
 id_inj  = model.get_nearest_cell(pos=(25, 1.0e3, 50)).index
 fa_t = 1
@@ -319,10 +319,17 @@ virtual_cell = seepage.add_cell(model, pos=pos_prd, porosity=1.0e5, pore_modulus
                                 s=((1.0, 0, 0, 0, 0), 0, 0, 0, (0, 0)))
 seepage.add_face(model, virtual_cell, model.get_cell(id_prod),
                  heat_cond=0, perm=1.0e-14,
-                 area=0.0, #the area 0 indicates the well is closed
+                 area=1.0, #the area 0 indicates the well is closed
                  length=1.0)
 pre_ctrl = PressureController(virtual_cell, t=[0, 1e10], p=[p_prod, p_prod])
 monitor  = SeepageCellMonitor(get_t=lambda: seepage.get_time(model), cell=(virtual_cell, pre_ctrl))
+
+
+"Time step Strategy"
+seepage.set_dv_relative(model, 0.5) # The ratio of the distance traveled by each time step to the grid size
+seepage.set_dt(model, 0.01) # initial value for time step
+seepage.set_dt_max(model, 24 * 3600 * 7)  # Maximum value of time step <one week> # Maximum value of time step <one week>
+seepage.set_dt_min(model, 3600)  # Minimum step size is 1 hour
 
 "save"
 
@@ -438,12 +445,13 @@ def temperature():
     temp = np.array(temp)
     temp = np.transpose(temp.reshape(200, 200))
     fig, ax = pyplot.subplots()
-    plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True)
+    plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True, vmin=np.min(350), vmax=np.max(1000))
     ax.set_xlabel('x, m')
     ax.set_ylabel('y, m') 
     ax.set_ylim(100, 0)
     cbar = fig.colorbar(ScalarMappable(norm=plot.norm, cmap=plot.cmap), ax=ax)
     cbar.set_label('Temperature, K')  # Set label for the colorbar
+    
     pyplot.show()
 
 # temperature()
@@ -456,22 +464,23 @@ def iterate():
     os.makedirs(os.path.join(os.getcwd(), data_path, f'Results_rate'), exist_ok=True)
     folder = os.path.join(os.getcwd(), data_path, f'Results_rate')
     
-    solver = ConjugateGradientSolver(tolerance=1.0e-8)
+    solver = ConjugateGradientSolver(tolerance=1.0e-30)
     for step in range(100000000):
         seepage.iterate(model, solver=solver)
         pre_ctrl.update(seepage.get_time(model))
         monitor.update(dt=seepage.get_dt(model))
         
         
-        time = seepage.get_time(model) / (3600 * 24)
-        if time > 3600 * 24 * 365 * 20:
+        time = seepage.get_time(model) / (3600 * 24 )
+        if time > 3600 * 24 * 365 * 10:
             print(f'time Finish = {seepage.get_time(model) / 3600*34*365}')
             break
-        
-        if step % 1 == 0:
+        path = f'time_{time}.txt'
+        if step % 100 == 0:
             temperature()
-            monitor.save(os.path.join(folder, f'prod_{name}.txt'))
-            print(f'time = {time}')
+            # save_mass(path)
+            # monitor.save(os.path.join(folder, f'prod.txt'))
+            print(f'time = {time}, step = {step}')
             
         
 iterate()        
