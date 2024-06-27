@@ -238,11 +238,8 @@ model = seepage.create(mesh=create_mesh(), **kw)
 
 "Relative Permeability"
 
-model.set_kr(index=0, saturation=sg, kr=krg)
-model.set_kr(index=1, saturation=sw, kr=krw)
-model.set_kr(index=2, saturation=so, kr=kro)
-model.set_kr(index=3, saturation=so, kr=kro)
-
+vs, vk = create_krf(faic=0.05, n=2.0, count=300)
+model.set_kr(saturation=vs, kr=vk)
 
 "Fractures"
 """
@@ -250,35 +247,35 @@ fl_min, fl_max: minimum and maximum lengths of natural fractures
 p21: Density of natural fractures
 """
 
-dfn = Dfn2()
-dfn.range = [0.25, 25.0, 100, 75]
+# dfn = Dfn2()
+# dfn.range = [0.25, 25.0, 100, 75]
 
-fl_min, fl_ma = 10, 15
-p21 = 0.2
-angles=None
-dfn.add_frac(angles=np.linspace(0.0, 3.1415 * 2, 50) if angles is None else angles,
-              lengths=np.linspace(fl_min, fl_ma, 50), p21=p21)
-fractures = dfn.get_fractures()
-# show_dfn2(fractures, caption='裂缝')
-# add cracks to the model
-for x0, z0, x1, z1 in dfn.get_fractures():
-    cell_beg = model.get_nearest_cell(pos=[x0, 0, z0])
-    cell_end = model.get_nearest_cell(pos=[x1, 0, z1])
+# fl_min, fl_ma = 10, 15
+# p21 = 0.2
+# angles=None
+# dfn.add_frac(angles=np.linspace(0.0, 3.1415 * 2, 50) if angles is None else angles,
+#               lengths=np.linspace(fl_min, fl_ma, 50), p21=p21)
+# fractures = dfn.get_fractures()
+# # show_dfn2(fractures, caption='裂缝')
+# # add cracks to the model
+# for x0, z0, x1, z1 in dfn.get_fractures():
+#     cell_beg = model.get_nearest_cell(pos=[x0, 0, z0])
+#     cell_end = model.get_nearest_cell(pos=[x1, 0, z1])
     
-    def get_dist(cell_pos):
-        return seg_point_distance([[x0, z0], [x1, z1]], cell_pos[0: 2]) + point_distance(cell_pos, cell_end.pos)
-    count = 0
-    while cell_beg.index != cell_end.index:
-        dist = [get_dist(c.pos) for c in cell_beg.cells]
-        idx = 0
-        for i in range(1, len(dist)):
-            if dist[i] < dist[idx]:
-                idx = i
-        cell = cell_beg.get_cell(idx)
-        face = model.add_face(cell_beg, cell)
-        seepage.set_face(face=face, perm=1.0e-14)
-        count += 1
-        cell_beg = cell
+#     def get_dist(cell_pos):
+#         return seg_point_distance([[x0, z0], [x1, z1]], cell_pos[0: 2]) + point_distance(cell_pos, cell_end.pos)
+#     count = 0
+#     while cell_beg.index != cell_end.index:
+#         dist = [get_dist(c.pos) for c in cell_beg.cells]
+#         idx = 0
+#         for i in range(1, len(dist)):
+#             if dist[i] < dist[idx]:
+#                 idx = i
+#         cell = cell_beg.get_cell(idx)
+#         face = model.add_face(cell_beg, cell)
+#         seepage.set_face(face=face, perm=1.0e-14)
+#         count += 1
+#         cell_beg = cell
 
 
 "attribute"
@@ -299,12 +296,10 @@ for cell in tot_cells:
 rate_inj = 1e-6
 pos_inj = (25, 1.0e3, 50)
 id_inj  = model.get_nearest_cell(pos=(25, 1.0e3, 50)).index
-fa_t = 1
-fa_c = 2
 cell_inj = model.get_cell(id_inj)
 flu = cell_inj.get_fluid(0).get_component(3)
-flu.set_attr(fa_t, 700)
-flu.set_attr(fa_c, 1000)
+flu.set_attr(seepage.flu_keys(model).temperature, 700)
+flu.set_attr(seepage.flu_keys(model).specific_heat, 1000)
 model.add_injector(cell=cell_inj, fluid_id=[0, 3], flu=flu,
                     pos=cell_inj.pos, radi=1.0, opers=[(0, rate_inj)])
 
@@ -445,7 +440,8 @@ def temperature():
     temp = np.array(temp)
     temp = np.transpose(temp.reshape(200, 200))
     fig, ax = pyplot.subplots()
-    plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True, vmin=np.min(350), vmax=np.max(1000))
+    # plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True, vmin=np.min(350), vmax=np.max(1000))
+    plot = ax.contourf(temp, 20, extent=[0, 100, 0, 100], cmap='coolwarm', antialiased=True)
     ax.set_xlabel('x, m')
     ax.set_ylabel('y, m') 
     ax.set_ylim(100, 0)
@@ -464,7 +460,7 @@ def iterate():
     os.makedirs(os.path.join(os.getcwd(), data_path, f'Results_rate'), exist_ok=True)
     folder = os.path.join(os.getcwd(), data_path, f'Results_rate')
     
-    solver = ConjugateGradientSolver(tolerance=1.0e-30)
+    solver = ConjugateGradientSolver(tolerance=1.0e-8)
     for step in range(100000000):
         seepage.iterate(model, solver=solver)
         pre_ctrl.update(seepage.get_time(model))
@@ -472,7 +468,7 @@ def iterate():
         
         
         time = seepage.get_time(model) / (3600 * 24 )
-        if time > 3600 * 24 * 365 * 10:
+        if time > 3600 * 24 * 365 * 5:
             print(f'time Finish = {seepage.get_time(model) / 3600*34*365}')
             break
         path = f'time_{time}.txt'
